@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Exam Focus AI - Clear the Noise</title>
+    <link rel="stylesheet" href="style.css">
+    <style>
+        body {
+            position: relative;
+            min-height: 100vh;
+            margin: 0;
+            padding: 20px;
+            box-sizing: border-box;
+            transition: padding-left 0.3s ease;
+        }
+
+        .sidebar {
+            position: fixed;
+            top: 0;
+            left: -280px;
+            width: 280px;
+            height: 100vh;
+            background: #11141d;
+            border-right: 1px solid #2e3748;
+            padding: 60px 20px 20px 20px;
+            box-sizing: border-box;
+            z-index: 1000;
+            transition: left 0.3s ease;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+
+        .sidebar.open {
+            left: 0;
+        }
+
+        .sidebar-toggle-btn {
+            position: fixed;
+            top: 15px;
+            left: 15px;
+            background: #242b3d;
+            border: 1px solid #2e3748;
+            color: #fff;
+            border-radius: 8px;
+            width: 40px;
+            height: 40px;
+            cursor: pointer;
+            z-index: 1100;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.2rem;
+            transition: left 0.3s ease;
+        }
+
+        .sidebar.open ~ .sidebar-toggle-btn {
+            left: 235px;
+        }
+
+        body.sidebar-open {
+            padding-left: 300px;
+        }
+
+        .centered-container {
+            max-width: 800px;
+            margin: 0 auto;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 25px;
+            text-align: center;
+            width: 100%;
+        }
+
+        .card-centered {
+            width: 100%;
+            background: #1a1f2c;
+            border: 1px solid #2e3748;
+            border-radius: 12px;
+            padding: 25px;
+            box-sizing: border-box;
+        }
+
+        /* Beautiful matching textarea styling */
+        .styled-textarea {
+            width: 100%;
+            min-height: 120px;
+            margin-bottom: 15px;
+            background: #11141d;
+            border: 1px solid #2e3748;
+            color: #fff;
+            border-radius: 8px;
+            padding: 12px;
+            box-sizing: border-box;
+            font-size: 0.95rem;
+            font-family: inherit;
+            resize: vertical;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+
+        .styled-textarea:focus {
+            border-color: #ffab40;
+        }
+
+        /* Button to upload file */
+        .upload-button {
+            background: #242b3d;
+            border: 1px solid #2e3748;
+            color: #e2e8f0;
+            padding: 8px 16px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.9rem;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            margin-top: 10px;
+            transition: background 0.2s;
+        }
+
+        .upload-button:hover {
+            background: #2e3748;
+            border-color: #ffab40;
+        }
+
+        .history-item {
+            background: #242b3d;
+            padding: 10px 12px;
+            border-radius: 6px;
+            cursor: pointer;
+            border: 1px solid transparent;
+            transition: all 0.2s ease;
+            font-size: 0.9rem;
+            text-align: left;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            color: #b0b8c9;
+        }
+        .history-item:hover {
+            border-color: #ffab40;
+            background: #2a334a;
+            color: #fff;
+        }
+
+        .feedback-section {
+            margin-top: auto;
+            border-top: 1px solid #2e3748;
+            padding-top: 15px;
+        }
+        .feedback-input {
+            width: 100%;
+            background: #1a1f2c;
+            border: 1px solid #2e3748;
+            color: #fff;
+            border-radius: 6px;
+            padding: 8px;
+            resize: none;
+            font-size: 0.85rem;
+            box-sizing: border-box;
+            margin-bottom: 8px;
+        }
+        .feedback-btn {
+            width: 100%;
+            background: #ffab40;
+            color: #11141d;
+            border: none;
+            padding: 8px;
+            border-radius: 6px;
+            font-weight: bold;
+            cursor: pointer;
+            font-size: 0.85rem;
+        }
+        .feedback-btn:hover {
+            background: #ffbc66;
+        }
+        .hidden-view { display: none; }
+    </style>
+</head>
+<body>
+
+    <button id="toggleSidebar" class="sidebar-toggle-btn" title="Toggle History">🕒</button>
+
+    <aside id="sidebarPanel" class="sidebar">
+        <h3 style="color: #fff; margin-top: 10px; font-size: 1.1rem; border-bottom: 1px solid #2e3748; padding-bottom: 8px;">🕒 Recent Sessions</h3>
+        <div id="historyList" style="display: flex; flex-direction: column; gap: 8px; max-height: 250px; overflow-y: auto;">
+            <p id="noHistoryText" style="color: #64748b; font-size: 0.85rem; font-style: italic;">No past sessions found.</p>
+        </div>
+
+        <div class="feedback-section">
+            <h4 style="color: #fff; margin: 0 0 8px 0; font-size: 0.95rem;">📢 Leave a Review</h4>
+            <!-- Add action to submit reviews to your email via web3forms -->
+            <form id="feedbackForm">
+                <textarea id="feedbackText" class="feedback-input" name="message" rows="3" placeholder="What should we add next? Tell us your thoughts..." required></textarea>
+                <button type="submit" id="submitFeedbackBtn" class="feedback-btn">Submit Review</button>
+            </form>
+        </div>
+    </aside>
+
+    <div class="centered-container">
+        
+        <header style="margin-top: 40px;">
+            <h1 style="color: #fff; font-size: 2.5rem; margin-bottom: 5px; font-weight: bold;">Exam Focus AI - MVP</h1>
+            <p style="color: #94a3b8; font-size: 1.1rem;">Clear the noise. Study what matters.</p>
+        </header>
+
+        <section class="card-centered">
+            <!-- Applied the styled-textarea class here -->
+            <textarea id="textPasteInput" class="styled-textarea" placeholder="Paste your massive exam slides, reading notes, or chapter paragraphs here..."></textarea>
+            
+            <div id="dropZone" class="drop-zone" style="margin-bottom: 15px; cursor: pointer; padding: 25px;">
+                <p id="dropZoneText" style="margin: 0; color: #94a3b8;">Drag & drop your exam PDF notes here, or</p>
+                <button type="button" class="upload-button" id="fakeUploadBtn">
+                    📁 Choose PDF File
+                </button>
+                <input type="file" id="fileInput" accept="application/pdf" style="display: none;">
+            </div>
+
+            <button class="btn-generate">Generate Exam Strategy</button>
+        </section>
+
+        <section class="card-centered" style="text-align: left;">
+            <h2 style="color: #fff; text-align: center; margin-top: 0; font-size: 1.4rem; display: flex; align-items: center; justify-content: center; gap: 8px;">
+                ✨ High-Yield Exam Guide
+            </h2>
+
+            <div class="tabs" style="justify-content: center; margin-bottom: 20px;">
+                <button id="tabMustStudy" class="tab active">🎯 Must Study</button>
+                <button id="tabKeywords" class="tab">🔑 Keywords</button>
+            </div>
+
+            <div id="mustStudyContent" class="output-container active-view">
+                <p style="color: #64748b; text-align: center;">Your core actionable study guide will display here.</p>
+            </div>
+            <div id="keywordsContent" class="output-container hidden-view">
+                <p style="color: #64748b; text-align: center;">Your glowing core vocabulary badges will list here.</p>
+            </div>
+        </section>
+
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>

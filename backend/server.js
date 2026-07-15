@@ -110,3 +110,4 @@ app.post('/upload-file', upload.single('studyFile'), async (req, res) => {
 app.listen(PORT, () => {
     console.log(`Exam Focus AI Server listening on port: ${PORT}`);
 });
+export default app;

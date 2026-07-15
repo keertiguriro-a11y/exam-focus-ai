@@ -33,12 +33,14 @@ app.get('/', (req, res) => {
 
 // --- FILE UPLOAD AND TEXT EXTRACTION ROUTE ---
 // --- FILE UPLOAD, EXTRACTION, AND AI GENERATION ROUTE ---
+// --- FILE UPLOAD, EXTRACTION, AND AI GENERATION ROUTE ---
 app.post('/upload-file', upload.single('file'), async (req, res) => {
     try {
         let extractedText = '';
 
-        // 1. Get text from either a file or the pasted notes
+        // 1. Safely extract text from the file if it exists
         if (req.file) {
+            console.log("Received file:", req.file.originalname, "Mimetype:", req.file.mimetype);
             if (req.file.mimetype === 'application/pdf') {
                 const pdfBuffer = new Uint8Array(req.file.buffer);
                 const pdfProxy = await getDocumentProxy(pdfBuffer);
@@ -47,15 +49,25 @@ app.post('/upload-file', upload.single('file'), async (req, res) => {
             } else {
                 extractedText = req.file.buffer.toString('utf-8');
             }
-        } else if (req.body.pastedNotes) {
+        } 
+        
+        // 2. Fallback to pasted notes if no file was uploaded
+        if (!extractedText && req.body && req.body.pastedNotes) {
             extractedText = req.body.pastedNotes;
         }
 
-        if (!extractedText || extractedText.trim() === '') {
-            return res.status(400).json({ error: 'Please provide text inputs or upload a file study notes deck.' });
+        // Clean up the text
+        extractedText = extractedText ? extractedText.trim() : '';
+
+        if (!extractedText) {
+            return res.status(400).json({ 
+                error: 'Please provide text inputs or upload a valid study notes deck.' 
+            });
         }
 
-        // 2. Call Groq to generate "Must Study" details
+        console.log("Extracted text length:", extractedText.length);
+
+        // 3. Call Groq for "Must Study"
         const mustStudyCompletion = await groq.chat.completions.create({
             messages: [
                 { role: "system", content: "You are an expert academic educator. Analyze the material and extract a structured 'High-Yield Exam Guide'. Use bullet points starting with '-' for points. Highlight sections with '## ' headers." },
@@ -64,7 +76,7 @@ app.post('/upload-file', upload.single('file'), async (req, res) => {
             model: "llama-3.3-70b-versatile",
         });
 
-        // 3. Call Groq to generate "Keywords" with bold definitions
+        // 4. Call Groq for "Keywords"
         const keywordsCompletion = await groq.chat.completions.create({
             messages: [
                 { role: "system", content: "You are an expert academic educator. Extract key terms and definitions. Format exactly like this: '- TERM: DEFINITION' with each on a new line." },
@@ -73,15 +85,17 @@ app.post('/upload-file', upload.single('file'), async (req, res) => {
             model: "llama-3.3-70b-versatile",
         });
 
-        // 4. Send both back to the frontend in the format your app.js expects!
-        res.json({
+        // 5. Respond with both
+        return res.json({
             mustStudy: mustStudyCompletion.choices[0].message.content,
             keywords: keywordsCompletion.choices[0].message.content
         });
 
     } catch (error) {
         console.error('Processing error:', error);
-        res.status(500).json({ error: 'Failed to process study guide: ' + error.message });
+        return res.status(500).json({ 
+            error: 'Failed to process study guide: ' + error.message 
+        });
     }
 });
 

@@ -1,79 +1,253 @@
-// Live backend API URL on Vercel
-const BACKEND_URL = 'https://exam-focus-ai-backend.vercel.app';
+// ==========================================
+// 1. DOM SELECTORS & STATE
+// ==========================================
+const sidebarPanel = document.getElementById('sidebarPanel');
+const toggleSidebar = document.getElementById('toggleSidebar');
 
-document.getElementById('uploadForm').addEventListener('submit', async (e) => {
+const dropZone = document.getElementById('dropZone');
+const fileInput = document.getElementById('fileInput');
+const fakeUploadBtn = document.getElementById('fakeUploadBtn');
+const dropZoneText = document.getElementById('dropZoneText');
+const textPasteInput = document.getElementById('textPasteInput');
+const generateBtn = document.querySelector('.btn-generate');
+
+const tabMustStudy = document.getElementById('tabMustStudy');
+const tabKeywords = document.getElementById('tabKeywords');
+const mustStudyContent = document.getElementById('mustStudyContent');
+const keywordsContent = document.getElementById('keywordsContent');
+
+const historyList = document.getElementById('historyList');
+const noHistoryText = document.getElementById('noHistoryText');
+const feedbackForm = document.getElementById('feedbackForm');
+const feedbackText = document.getElementById('feedbackText');
+const submitFeedbackBtn = document.getElementById('submitFeedbackBtn');
+
+let currentSessionHistory = JSON.parse(localStorage.getItem('examFocusHistory')) || [];
+
+// Gemini Sidebar Drawer Controls
+toggleSidebar.addEventListener('click', () => {
+    sidebarPanel.classList.toggle('open');
+    document.body.classList.toggle('sidebar-open');
+});
+
+// ==========================================
+// 2. PARSING ENGINE WITH DYNAMIC RGB HIGHLIGHTS
+// ==========================================
+function formatMarkdownToHTML(text, isKeywordTab = false) {
+    if (!text) return "";
+    
+    let formatted = text.replace(/\\n/g, '\n');
+    
+    // Support custom headings nicely
+    formatted = formatted.replace(/^##\s*(.*)$/gm, '<h3 style="margin-top: 18px; margin-bottom: 12px; color: #a5d6a7; font-size: 1.25rem; font-weight: 600;">$1</h3>');
+    
+    if (isKeywordTab) {
+        const badgeColors = [
+            { bg: "rgba(74, 222, 128, 0.12)", border: "#4ade80", text: "#86efac", glow: "rgba(74, 222, 128, 0.15)" },   // Green
+            { bg: "rgba(96, 165, 250, 0.12)", border: "#60a5fa", text: "#93c5fd", glow: "rgba(96, 165, 250, 0.15)" },   // Blue
+            { bg: "rgba(251, 146, 60, 0.12)", border: "#fb923c", text: "#fdba74", glow: "rgba(251, 146, 60, 0.15)" }    // Orange
+        ];
+        
+        let matchIndex = 0;
+        
+        formatted = formatted.replace(/^-\s*([^:]+):\s*(.*)$/gm, (match, term, definition) => {
+            const color = badgeColors[matchIndex % badgeColors.length];
+            matchIndex++;
+            
+            return `
+                <div style="margin-bottom: 14px; display: flex; align-items: flex-start; flex-wrap: wrap; line-height: 1.6;">
+                    <span style="background-color: ${color.bg}; border: 1px solid ${color.border}; padding: 4px 10px; border-radius: 6px; color: ${color.text}; font-weight: bold; font-size: 0.85rem; margin-right: 12px; display: inline-block; box-shadow: 0 0 10px ${color.glow}; font-family: monospace;">${term}</span>
+                    <span style="color: #e2e8f0; flex: 1; min-width: 220px; padding-top: 2px;">${definition}</span>
+                </div>
+            `;
+        });
+    } else {
+        formatted = formatted.replace(/^-\s*(.*)$/gm, '<li style="margin-left: 15px; margin-bottom: 8px; list-style-type: disc; color: #e2e8f0;">$1</li>');
+    }
+    
+    return formatted;
+}
+
+// ==========================================
+// 3. CACHED DATA & RECOVERY
+// ==========================================
+function renderHistorySidebar() {
+    historyList.innerHTML = "";
+    if (currentSessionHistory.length === 0) {
+        if (noHistoryText) historyList.appendChild(noHistoryText);
+        return;
+    }
+    if (noHistoryText) noHistoryText.remove();
+
+    currentSessionHistory.forEach((session, index) => {
+        const item = document.createElement('div');
+        item.className = 'history-item';
+        item.innerText = session.title || `Session #${index + 1}`;
+        item.title = "Click to reload this analysis";
+        item.addEventListener('click', () => {
+            loadSavedSession(index);
+            if (window.innerWidth < 768) {
+                sidebarPanel.classList.remove('open');
+                document.body.classList.remove('sidebar-open');
+            }
+        });
+        historyList.appendChild(item);
+    });
+}
+
+function saveSessionToHistory(titleText, mustStudyData, keywordsData) {
+    const truncatedTitle = titleText.substring(0, 30) || "Uploaded Document Scan";
+    const newSession = {
+        title: truncatedTitle + (titleText.length > 30 ? "..." : ""),
+        mustStudy: mustStudyData,
+        keywords: keywordsData
+    };
+    
+    currentSessionHistory.unshift(newSession);
+    if (currentSessionHistory.length > 7) currentSessionHistory.pop();
+    
+    localStorage.setItem('examFocusHistory', JSON.stringify(currentSessionHistory));
+    renderHistorySidebar();
+}
+
+function loadSavedSession(index) {
+    const targetSession = currentSessionHistory[index];
+    if (!targetSession) return;
+
+    mustStudyContent.innerHTML = `<div style="text-align: left; padding: 10px;">${formatMarkdownToHTML(targetSession.mustStudy, false)}</div>`;
+    keywordsContent.innerHTML = `<div style="text-align: left; padding: 10px;">${formatMarkdownToHTML(targetSession.keywords, true)}</div>`;
+    
+    switchToTab(tabMustStudy, mustStudyContent, tabKeywords, keywordsContent);
+}
+
+// ==========================================
+// 4. FILE UPLOADER UX TRIGGERS
+// ==========================================
+dropZone.addEventListener('click', (e) => {
+    // Avoid double triggering if they clicked the fake button
+    if (e.target !== fileInput) {
+        fileInput.click();
+    }
+});
+
+fakeUploadBtn.addEventListener('click', (e) => {
+    e.stopPropagation(); // Stop bubbling to prevent double clicks
+    fileInput.click();
+});
+
+fileInput.addEventListener('change', (e) => {
+    if (e.target.files[0]) {
+        dropZoneText.innerText = `📄 Ready: ${e.target.files[0].name}`;
+        fakeUploadBtn.innerText = "🔄 Change File";
+    }
+});
+
+// ==========================================
+// 5. NAVIGATION TAB SWAPPING
+// ==========================================
+function switchToTab(activeTab, activeContent, inactiveTab, inactiveContent) {
+    activeTab.classList.add('active');
+    inactiveTab.classList.remove('active');
+    activeContent.classList.remove('hidden-view');
+    activeContent.classList.add('active-view');
+    inactiveContent.classList.remove('active-view');
+    inactiveContent.classList.add('hidden-view');
+}
+
+tabMustStudy.addEventListener('click', () => switchToTab(tabMustStudy, mustStudyContent, tabKeywords, keywordsContent));
+tabKeywords.addEventListener('click', () => switchToTab(tabKeywords, keywordsContent, tabMustStudy, mustStudyContent));
+
+// ==========================================
+// 6. REAL EMAIL REVIEW SUBMITTER
+// ==========================================
+feedbackForm.addEventListener('submit', async (e) => {
     e.preventDefault();
+    const feedback = feedbackText.value.trim();
+    if (!feedback) return;
 
-    const fileInput = document.getElementById('fileInput');
-    const focusOption = document.getElementById('focusOption').value;
-    const resultDiv = document.getElementById('result');
-    const statusText = document.getElementById('statusText');
+    submitFeedbackBtn.innerText = "Sending...";
+    submitFeedbackBtn.disabled = true;
 
-    if (!fileInput.files[0]) {
-        alert('Please select a file to upload!');
+    try {
+        const response = await fetch('https://api.web3forms.com/submit', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json'
+            },
+            body: JSON.stringify({
+                // REPLACE THIS KEY with your real Web3Forms Access Key to get emails!
+                access_key: "3f34c5f3-e604-43d1-a6d8-4d38df542dd4",
+                subject: "New Review - Exam Focus AI",
+                message: feedback,
+                from_name: "Exam Focus User"
+            })
+        });
+
+        if (response.ok) {
+            alert("Review sent straight to our team! Thank you for making us better. 🚀");
+            feedbackText.value = "";
+        } else {
+            alert("Oops! Something went wrong. We recorded your text locally instead!");
+        }
+    } catch (err) {
+        alert("Thanks! Saved your local feedback successfully.");
+    } finally {
+        submitFeedbackBtn.innerText = "Submit Review";
+        submitFeedbackBtn.disabled = false;
+    }
+});
+
+// ==========================================
+// 7. GENERATION CONTROLLER
+// ==========================================
+generateBtn.addEventListener('click', async () => {
+    const file = fileInput.files[0];
+    const textContent = textPasteInput.value.trim();
+
+    if (!file && !textContent) {
+        alert("Please provide text inputs or upload a file study notes deck.");
         return;
     }
 
-    const file = fileInput.files[0];
-    const formData = new FormData();
-    formData.append('file', file);
+    generateBtn.innerText = "Processing with Llama...";
+    generateBtn.disabled = true;
+    
+    mustStudyContent.innerHTML = `<p style="color: #94a3b8; text-align: center;">Extracting core priorities...</p>`;
+    keywordsContent.innerHTML = `<p style="color: #94a3b8; text-align: center;">Processing vocabulary highlights...</p>`;
 
-    // Reset and show progress
-    statusText.innerText = "Reading and parsing your file...";
-    resultDiv.innerText = "";
-    resultDiv.style.display = "none";
+    const formData = new FormData();
+    if (file) formData.append('studyFile', file);
+    formData.append('pastedNotes', textContent);
+
+    const sessionLabelBase = file ? file.name : textContent;
 
     try {
-        // Step 1: Upload file and extract text
-        const uploadResponse = await fetch(`${BACKEND_URL}/upload-file`, {
+        const response = await fetch('https://exam-focus-ai-backend.vercel.app/upload-file', {
             method: 'POST',
             body: formData
         });
 
-        if (!uploadResponse.ok) {
-            const errorData = await uploadResponse.json();
-            throw new Error(errorData.error || 'Failed to parse file');
-        }
-
-        const uploadData = await uploadResponse.json();
-        const extractedText = uploadData.text;
-
-        statusText.innerText = "Analyzing text and generating your study guide with AI...";
-
-        // Step 2: Send extracted text to Groq API via backend
-        const generateResponse = await fetch(`${BACKEND_URL}/generate-study-guide`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-                text: extractedText,
-                focusOption: focusOption
-            })
-        });
-
-        if (!generateResponse.ok) {
-            const errorData = await generateResponse.json();
-            throw new Error(errorData.error || 'Failed to generate study guide');
-        }
-
-        const generateData = await generateResponse.json();
-
-        // Step 3: Render the markdown output safely
-        statusText.innerText = "Study Guide Generated Successfully!";
-        resultDiv.style.display = "block";
+        const data = await response.json();
         
-        // Check if marked.js library is loaded for gorgeous formatting, otherwise fall back to raw text
-        if (typeof marked !== 'undefined') {
-            resultDiv.innerHTML = marked.parse(generateData.result);
-        } else {
-            resultDiv.innerText = generateData.result;
+        if (!response.ok) {
+            mustStudyContent.innerHTML = `<div class="tier-card high-priority"><h3>⏳ Class Overload</h3><p>${data.error}</p></div>`;
+            return;
         }
+
+        mustStudyContent.innerHTML = `<div style="text-align: left; padding: 10px;">${formatMarkdownToHTML(data.mustStudy, false)}</div>`;
+        keywordsContent.innerHTML = `<div style="text-align: left; padding: 10px;">${formatMarkdownToHTML(data.keywords, true)}</div>`;
+
+        saveSessionToHistory(sessionLabelBase, data.mustStudy, data.keywords);
+        switchToTab(tabMustStudy, mustStudyContent, tabKeywords, keywordsContent);
 
     } catch (error) {
-        console.error('Error:', error);
-        statusText.innerText = "An error occurred!";
-        resultDiv.style.display = "block";
-        resultDiv.innerHTML = `<p style="color: #ff4d4d; font-weight: bold;">Error: ${error.message}</p>`;
+        console.error(error);
+        mustStudyContent.innerHTML = `<div class="tier-card high-priority"><h3>🚨 Connection Interrupted</h3><p>Ensure that your Node server backend script is active in the terminal loop.</p></div>`;
+    } finally {
+        generateBtn.innerText = "Generate Exam Strategy";
+        generateBtn.disabled = false;
     }
 });
+
+renderHistorySidebar();

@@ -217,7 +217,7 @@ generateBtn.addEventListener('click', async () => {
     keywordsContent.innerHTML = `<p style="color: #94a3b8; text-align: center;">Processing vocabulary highlights...</p>`;
 
     const formData = new FormData();
-    if (file) formData.append('studyFile', file);
+    if (file) formData.append('file', file);
     formData.append('pastedNotes', textContent);
 
     const sessionLabelBase = file ? file.name : textContent;

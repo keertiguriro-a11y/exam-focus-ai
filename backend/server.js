@@ -32,36 +32,56 @@ app.get('/', (req, res) => {
 });
 
 // --- FILE UPLOAD AND TEXT EXTRACTION ROUTE ---
+// --- FILE UPLOAD, EXTRACTION, AND AI GENERATION ROUTE ---
 app.post('/upload-file', upload.single('file'), async (req, res) => {
     try {
-        if (!req.file) {
-            return res.status(400).json({ error: 'No file uploaded' });
-        }
-
         let extractedText = '';
 
-        if (req.file.mimetype === 'application/pdf') {
-            // Unpdf needs a Uint8Array to parse safely in serverless environments
-            const pdfBuffer = new Uint8Array(req.file.buffer);
-            const pdfProxy = await getDocumentProxy(pdfBuffer);
-            
-            // Extract the text and merge the pages into a single string
-            const parsed = await extractText(pdfProxy, { mergePages: true });
-            extractedText = parsed.text;
-        } else {
-            // Handle standard plain text files
-            extractedText = req.file.buffer.toString('utf-8');
+        // 1. Get text from either a file or the pasted notes
+        if (req.file) {
+            if (req.file.mimetype === 'application/pdf') {
+                const pdfBuffer = new Uint8Array(req.file.buffer);
+                const pdfProxy = await getDocumentProxy(pdfBuffer);
+                const parsed = await extractText(pdfProxy, { mergePages: true });
+                extractedText = parsed.text;
+            } else {
+                extractedText = req.file.buffer.toString('utf-8');
+            }
+        } else if (req.body.pastedNotes) {
+            extractedText = req.body.pastedNotes;
         }
 
         if (!extractedText || extractedText.trim() === '') {
-            return res.status(400).json({ error: 'Could not extract text from the file' });
+            return res.status(400).json({ error: 'Please provide text inputs or upload a file study notes deck.' });
         }
 
-        res.json({ text: extractedText });
+        // 2. Call Groq to generate "Must Study" details
+        const mustStudyCompletion = await groq.chat.completions.create({
+            messages: [
+                { role: "system", content: "You are an expert academic educator. Analyze the material and extract a structured 'High-Yield Exam Guide'. Use bullet points starting with '-' for points. Highlight sections with '## ' headers." },
+                { role: "user", content: `Provide a thorough must-study guide for this material:\n\n${extractedText}` }
+            ],
+            model: "llama-3.3-70b-versatile",
+        });
+
+        // 3. Call Groq to generate "Keywords" with bold definitions
+        const keywordsCompletion = await groq.chat.completions.create({
+            messages: [
+                { role: "system", content: "You are an expert academic educator. Extract key terms and definitions. Format exactly like this: '- TERM: DEFINITION' with each on a new line." },
+                { role: "user", content: `Extract the main terms and definitions from this material:\n\n${extractedText}` }
+            ],
+            model: "llama-3.3-70b-versatile",
+        });
+
+        // 4. Send both back to the frontend in the format your app.js expects!
+        res.json({
+            mustStudy: mustStudyCompletion.choices[0].message.content,
+            keywords: keywordsCompletion.choices[0].message.content
+        });
 
     } catch (error) {
-        console.error('File parsing error:', error);
-        res.status(500).json({ error: 'Failed to parse file: ' + error.message });
+        console.error('Processing error:', error);
+        res.status(500).json({ error: 'Failed to process study guide: ' + error.message });
     }
 });
 

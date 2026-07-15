@@ -1,113 +1,115 @@
 import express from 'express';
-import cors from 'cors';
 import multer from 'multer';
-import { Groq } from 'groq-sdk';
+import cors from 'cors';
 import dotenv from 'dotenv';
-import { createRequire } from 'module';
+import Groq from 'groq-sdk';
+import { getDocumentProxy, extractText } from 'unpdf';
 
-// Create a require function to cleanly import CommonJS modules in ESM
-const require = createRequire(import.meta.url);
-const pdfParse = require('pdf-parse');
-
+// Load environment variables
 dotenv.config();
 
 const app = express();
-const PORT = process.env.PORT || 5000;
 
-// Initialize Groq SDK with API Key
-const groq = new Groq({
-    apiKey: process.env.GROQ_API_KEY
-});
+// Configure CORS for local development and Vercel frontends
+app.use(cors({
+    origin: '*', 
+    methods: ['GET', 'POST'],
+    allowedHeaders: ['Content-Type', 'Authorization']
+}));
 
-// Configure Multer for PDF file buffer uploads in memory
-const storage = multer.memoryStorage();
-const upload = multer({
-    storage: storage,
-    fileFilter: (req, file, cb) => {
-        if (file.mimetype === 'application/pdf') {
-            cb(null, true);
-        } else {
-            cb(new Error('Only PDF documents are supported.'), false);
-        }
-    }
-});
-
-app.use(cors());
 app.use(express.json());
 
-/**
- * Route: POST /upload-file
- * Handles optional file upload and/or raw text inputs, compiles them, 
- * passes them to Groq Llama, and sends back structured study material JSON.
- */
-app.post('/upload-file', upload.single('studyFile'), async (req, res) => {
+// Set up Multer memory storage for incoming files (keeps them out of serverless storage)
+const storage = multer.memoryStorage();
+const upload = multer({ storage: storage });
+
+// Initialize Groq SDK
+const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
+
+// --- HEALTH CHECK ROUTE ---
+app.get('/', (req, res) => {
+    res.json({ status: "Exam Focus AI Backend is Live and Running!" });
+});
+
+// --- FILE UPLOAD AND TEXT EXTRACTION ROUTE ---
+app.post('/upload-file', upload.single('file'), async (req, res) => {
     try {
-        let extractedPdfText = '';
-        const pastedNotes = req.body.pastedNotes || '';
-
-        // If a file was uploaded, parse its text content
-        if (req.file) {
-            try {
-                const pdfData = await pdfParse(req.file.buffer);
-                extractedPdfText = pdfData.text;
-            } catch (pdfErr) {
-                console.error('PDF parsing error:', pdfErr);
-                return res.status(400).json({ error: 'Failed to process and parse the uploaded PDF file.' });
-            }
+        if (!req.file) {
+            return res.status(400).json({ error: 'No file uploaded' });
         }
 
-        // Combine inputs
-        const finalCleanText = `${extractedPdfText}\n\n${pastedNotes}`.trim();
+        let extractedText = '';
 
-        if (!finalCleanText) {
-            return res.status(400).json({ error: 'No readable text was provided. Please paste notes or upload a valid PDF.' });
+        if (req.file.mimetype === 'application/pdf') {
+            // Unpdf needs a Uint8Array to parse safely in serverless environments
+            const pdfBuffer = new Uint8Array(req.file.buffer);
+            const pdfProxy = await getDocumentProxy(pdfBuffer);
+            
+            // Extract the text and merge the pages into a single string
+            const parsed = await extractText(pdfProxy, { mergePages: true });
+            extractedText = parsed.text;
+        } else {
+            // Handle standard plain text files
+            extractedText = req.file.buffer.toString('utf-8');
         }
 
-        // Call Groq API with the updated, high-yield structured system prompt
-        const chatCompletion = await groq.chat.completions.create({
-            model: "llama-3.1-8b-instant",
-            response_format: { type: "json_object" },
-            messages: [
-                { 
-                    role: "system", 
-                    content: `You are an elite academic tutor who specializes in extracting high-yield exam material. 
-                    Analyze the material and respond strictly using valid JSON format containing exactly two keys: "mustStudy" and "keywords". 
-                    
-                    Rules for "mustStudy":
-                    - Start with '## 🎯 The Core Takeaway' followed by a crisp 2-sentence summary of the most critical exam concept.
-                    - Use '## 🚨 HIGH PRIORITY (60% of Exam)' and '## ⚖️ MEDIUM PRIORITY' as headings.
-                    - Provide short, highly actionable bullet points that contain ACTUAL facts, rules, or core details from the text (do not just say "Study X", explain "What X actually is in one sentence").
-                    
-                    Rules for "keywords":
-                    - Provide a list of terms formatted strictly as: "- Term: Definition"
-                    - Keep definitions to a single crisp, easy-to-memorize sentence.
-                    
-                    Structure:
-                    {
-                        "mustStudy": "## 🎯 The Core Takeaway\\nThis chapter focuses on X which is defined by Y...\\n\\n## 🚨 HIGH PRIORITY (60% of Exam)\\n- Fact A: Explain what it actually does here.\\n- Fact B: Detail why this is critical.\\n\\n## ⚖️ MEDIUM PRIORITY\\n- Fact C: Key details.",
-                        "keywords": "- Term 1: Short definition here.\\n- Term 2: Short definition here."
-                    }`
-                },
-                { 
-                    role: "user", 
-                    content: `Break down this study text:\n\n${finalCleanText}` 
-                }
-            ],
-            temperature: 0.3
-        });
+        if (!extractedText || extractedText.trim() === '') {
+            return res.status(400).json({ error: 'Could not extract text from the file' });
+        }
 
-        // Parse and return the JSON payload
-        const resultPayload = JSON.parse(chatCompletion.choices[0].message.content);
-        res.json(resultPayload);
+        res.json({ text: extractedText });
 
     } catch (error) {
-        console.error('Core generation error:', error);
-        res.status(500).json({ error: 'Internal system error processing your request.' });
+        console.error('File parsing error:', error);
+        res.status(500).json({ error: 'Failed to parse file: ' + error.message });
     }
 });
 
-// Start the server
-app.listen(PORT, () => {
-    console.log(`Exam Focus AI Server listening on port: ${PORT}`);
+// --- AI GENERATION ROUTE ---
+app.post('/generate-study-guide', async (req, res) => {
+    const { text, focusOption } = req.body;
+
+    if (!text) {
+        return res.status(400).json({ error: 'No text provided to generate a study guide' });
+    }
+
+    // Set up prompt based on selection
+    let systemPrompt = "You are an expert academic educator helping students prepare for exams.";
+    let userPrompt = "";
+
+    if (focusOption === "concepts") {
+        userPrompt = `Analyze the following study material and extract the absolute core terms, definitions, and major concepts. Provide clear, simple explanations for each:\n\n${text}`;
+    } else if (focusOption === "questions") {
+        userPrompt = `Generate a rigorous high-yield study guide consisting of multiple-choice and short-answer questions with an answer key based on this material:\n\n${text}`;
+    } else {
+        userPrompt = `Provide a comprehensive structured summary of the main points from the following study material:\n\n${text}`;
+    }
+
+    try {
+        const chatCompletion = await groq.chat.completions.create({
+            messages: [
+                { role: "system", content: systemPrompt },
+                { role: "user", content: userPrompt }
+            ],
+            model: "llama-3.3-70b-versatile",
+        });
+
+        res.json({ result: chatCompletion.choices[0].message.content });
+
+    } catch (error) {
+        console.error('AI Generation Error:', error);
+        res.status(500).json({ error: 'Failed to generate study guide: ' + error.message });
+    }
 });
+
+// --- SERVER INITIALIZATION ---
+// Vercel handles server listening dynamically. We only use app.listen when running locally.
+if (process.env.NODE_ENV !== 'production') {
+    const PORT = process.env.PORT || 5000;
+    app.listen(PORT, () => {
+        console.log(`Local development server running on http://localhost:${PORT}`);
+    });
+}
+
+// Crucial: Export the app for Vercel's Serverless environment
 export default app;

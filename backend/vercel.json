@@ -6,9 +6,17 @@
       "use": "@vercel/node"
     }
   ],
-    "routes": [
-      {
-      "src": "/(.*)",
+  "routes": [
+    {
+      "src": "/upload-file",
+      "dest": "server.js"
+    },
+    {
+      "src": "/generate-study-guide",
+      "dest": "server.js"
+    },
+    {
+      "src": "/",
       "dest": "server.js"
     }
   ]

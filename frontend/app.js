@@ -222,8 +222,14 @@ generateBtn.addEventListener('click', async () => {
 
     const sessionLabelBase = file ? file.name : textContent;
 
+    // Dynamic API URL selector
+    const API_URL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+        ? 'http://localhost:5000/upload-file' 
+        : 'https://exam-focus-ai-backend.vercel.app/upload-file';
+
     try {
-        const response = await fetch('https://exam-focus-ai-backend.vercel.app/upload-file', {
+        // Send request and assign to the response variable
+        const response = await fetch(API_URL, {
             method: 'POST',
             body: formData
         });
@@ -231,7 +237,7 @@ generateBtn.addEventListener('click', async () => {
         const data = await response.json();
         
         if (!response.ok) {
-            mustStudyContent.innerHTML = `<div class="tier-card high-priority"><h3>⏳ Class Overload</h3><p>${data.error}</p></div>`;
+            mustStudyContent.innerHTML = `<div class="tier-card high-priority"><h3>⏳ Class Overload</h3><p>${data.error || 'Unknown server error.'}</p></div>`;
             return;
         }
 
